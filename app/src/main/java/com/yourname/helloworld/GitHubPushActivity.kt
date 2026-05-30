@@ -73,12 +73,9 @@ class GitHubPushActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val json = buildBackupJson(
-                        owner = findViewById<TextInputEditText>(R.id.ownerInput).text?.toString().orEmpty(),
-                        repo = findViewById<TextInputEditText>(R.id.repoInput).text?.toString().orEmpty(),
-                        branch = findViewById<TextInputEditText>(R.id.branchInput).text?.toString().orEmpty(),
-                        message = findViewById<TextInputEditText>(R.id.messageInput).text?.toString().orEmpty()
-                    )
+                    // Make sure the latest UI values are persisted before exporting.
+                    saveUiToPrefs()
+                    val json = buildBackupJson()
                     contentResolver.openOutputStream(uri)?.use { out ->
                         out.write(json.toByteArray(Charsets.UTF_8))
                     } ?: throw IOException("Unable to write backup file.")
@@ -161,7 +158,7 @@ class GitHubPushActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.exportBackupButton).setOnClickListener {
-            exportBackup.launch("hello-trae-backup.json")
+            exportBackup.launch("irvan-trae-backup.json")
         }
         findViewById<Button>(R.id.importBackupButton).setOnClickListener {
             importBackup.launch(arrayOf("application/json", "text/plain"))
@@ -321,7 +318,7 @@ class GitHubPushActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildBackupJson(owner: String, repo: String, branch: String, message: String): String {
+    private fun buildBackupJson(): String {
         val obj = JSONObject()
 
         // SSH key (if present)
@@ -332,10 +329,10 @@ class GitHubPushActivity : AppCompatActivity() {
         }
 
         // Repo settings
-        obj.put("owner", owner.trim())
-        obj.put("repo", repo.trim())
-        obj.put("branch", branch.trim().ifEmpty { "main" })
-        obj.put("message", message.trim().ifEmpty { "Upload project zip from Android" })
+        obj.put("owner", prefs.getString("owner", "").orEmpty().trim())
+        obj.put("repo", prefs.getString("repo", "").orEmpty().trim())
+        obj.put("branch", prefs.getString("branch", "main").orEmpty().trim().ifEmpty { "main" })
+        obj.put("message", prefs.getString("message", "Upload project zip from Android").orEmpty().trim())
 
         return obj.toString(2)
     }
@@ -358,6 +355,12 @@ class GitHubPushActivity : AppCompatActivity() {
             .putString("branch", obj.optString("branch", "main"))
             .putString("message", obj.optString("message", "Upload project zip from Android"))
             .apply()
+
+        AppLog.append(
+            this,
+            logTag,
+            "Imported backup repo details: ${obj.optString("owner", "")}/${obj.optString("repo", "")} branch=${obj.optString("branch", "main")}"
+        )
     }
 
     private fun ensureSshKeypair(): String {
