@@ -29,6 +29,7 @@ import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
+import org.eclipse.jgit.transport.RemoteRefUpdate
 import java.io.IOException
 import java.io.File
 import java.io.FileOutputStream
@@ -498,6 +499,22 @@ class GitHubPushActivity : AppCompatActivity() {
             for (u in res.remoteUpdates) {
                 AppLog.append(this, logTag, "Remote update ${u.remoteName}: ${u.status} ${u.message ?: ""}".trim())
             }
+        }
+
+        // Treat non-OK statuses as a failure. Otherwise the UI may incorrectly say "success"
+        // even if the remote rejected the update (e.g., REJECTED_NONFASTFORWARD).
+        val rejected = results
+            .flatMap { it.remoteUpdates }
+            .firstOrNull { u ->
+                u.status != RemoteRefUpdate.Status.OK &&
+                    u.status != RemoteRefUpdate.Status.UP_TO_DATE
+            }
+        if (rejected != null) {
+            throw TransportException(
+                "Push rejected: ${rejected.remoteName} ${rejected.status}" +
+                    (rejected.message?.let { " ($it)" } ?: "") +
+                    ". Tip: change Branch to a new branch name and push again, or fast-forward/merge on GitHub first."
+            )
         }
 
         git.close()
