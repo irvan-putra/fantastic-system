@@ -182,7 +182,7 @@ class GitHubPushActivity : AppCompatActivity() {
                 status.text = "Pick a ZIP file first."
                 return@setOnClickListener
             }
-            if (!privateKeyFile.exists() || !publicKeyFile.exists() || !keyAlgFile.exists()) {
+            if (!privateKeyFile.exists() || !publicKeyFile.exists() || !keyTypeFile.exists()) {
                 status.text = "Generate SSH key first."
                 return@setOnClickListener
             }
