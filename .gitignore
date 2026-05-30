@@ -25,3 +25,13 @@ venv/
 dist/
 build/
 
+# Android / Gradle
+.gradle/
+local.properties
+*.iml
+/.idea/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
