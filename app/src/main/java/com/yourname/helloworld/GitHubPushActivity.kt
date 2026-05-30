@@ -10,6 +10,7 @@ import android.util.Log
 import android.animation.ObjectAnimator
 import android.view.View
 import android.view.animation.LinearInterpolator
+import android.net.Uri as AndroidUri
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
@@ -24,6 +25,7 @@ import org.json.JSONObject
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.errors.TransportException
+import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
@@ -174,6 +176,18 @@ class GitHubPushActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.viewHistoryButton).setOnClickListener {
             startActivity(Intent(this, LogHistoryActivity::class.java))
+        }
+
+        findViewById<Button>(R.id.openGithubButton).setOnClickListener {
+            val o = owner.text?.toString()?.trim().orEmpty()
+            val r = repo.text?.toString()?.trim().orEmpty()
+            val b = branch.text?.toString()?.trim().orEmpty().ifEmpty { "main" }
+            if (o.isBlank() || r.isBlank()) {
+                status.text = "Missing owner/repo."
+                return@setOnClickListener
+            }
+            val url = "https://github.com/$o/$r/tree/$b"
+            startActivity(Intent(Intent.ACTION_VIEW, AndroidUri.parse(url)))
         }
 
         findViewById<Button>(R.id.pickZipButton).setOnClickListener {
@@ -452,20 +466,35 @@ class GitHubPushActivity : AppCompatActivity() {
         copyDirIntoRepo(sourceDir, repoDir)
 
         git.add().addFilepattern(".").call()
+
+        val st = git.status().call()
+        AppLog.append(
+            this,
+            logTag,
+            "Git status: added=${st.added.size} changed=${st.changed.size} modified=${st.modified.size} removed=${st.removed.size} untracked=${st.untracked.size}"
+        )
         // Allow empty commits in case the ZIP had no files or only ignored paths.
-        git.commit().setAllowEmpty(true).setMessage(commitMessage).call()
+        val committed: RevCommit = git.commit().setAllowEmpty(true).setMessage(commitMessage).call()
+        AppLog.append(this, logTag, "Created commit ${committed.name.take(10)} on branch $branch")
 
         val cfg = git.repository.config
         cfg.setString("remote", "origin", "url", remoteUrl)
         cfg.setString("remote", "origin", "fetch", "+refs/heads/*:refs/remotes/origin/*")
         cfg.save()
 
-        git.push()
+        val results = git.push()
             .setRemote("origin")
             .setTransportConfigCallback(transportConfigCallback)
             .setTimeout(180)
             .setRefSpecs(org.eclipse.jgit.transport.RefSpec(Constants.R_HEADS + branch + ":" + Constants.R_HEADS + branch))
             .call()
+
+        // Log remote update details (useful when users think push succeeded but nothing changed).
+        for (res in results) {
+            for (u in res.remoteUpdates) {
+                AppLog.append(this, logTag, "Remote update ${u.remoteName}: ${u.status} ${u.message ?: ""}".trim())
+            }
+        }
 
         git.close()
     }

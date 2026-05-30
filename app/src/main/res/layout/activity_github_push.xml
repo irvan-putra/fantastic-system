@@ -157,6 +157,13 @@
                 android:text="View history" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/openGithubButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Open on GitHub" />
+
         <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"
