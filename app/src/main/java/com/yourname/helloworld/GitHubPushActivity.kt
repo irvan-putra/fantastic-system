@@ -7,7 +7,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.animation.ObjectAnimator
+import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -46,6 +50,7 @@ class GitHubPushActivity : AppCompatActivity() {
     private val keyTypeFile: File by lazy { File(sshDir, "key_type.txt") }
 
     private var selectedZipUri: Uri? = null
+    private var pushRocketAnim: ObjectAnimator? = null
 
     private val pickZip = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         selectedZipUri = uri
@@ -113,6 +118,7 @@ class GitHubPushActivity : AppCompatActivity() {
         val branch = findViewById<TextInputEditText>(R.id.branchInput)
         val message = findViewById<TextInputEditText>(R.id.messageInput)
         val status = findViewById<TextView>(R.id.statusText)
+        val pushRocket = findViewById<ImageView>(R.id.pushRocket)
         lastErrorForCopy = ""
 
         // Load saved repo settings (and restore after reinstall via Android backup or Import backup).
@@ -196,6 +202,7 @@ class GitHubPushActivity : AppCompatActivity() {
 
             status.text = "Unzipping + committing + pushing…"
             AppLog.append(this@GitHubPushActivity, logTag, "Push start: $o/$r branch=$b")
+            startPushRocket(pushRocket)
             lifecycleScope.launch {
                 try {
                     withContext(Dispatchers.IO) {
@@ -223,15 +230,41 @@ class GitHubPushActivity : AppCompatActivity() {
                     }
                     status.text = "Done! Pushed to $o/$r ($b)"
                     AppLog.append(this@GitHubPushActivity, logTag, "Push success: $o/$r branch=$b")
+                    stopPushRocket(pushRocket)
                 } catch (e: Exception) {
                     Log.e(logTag, "Push failed", e)
                     val full = formatError(e)
                     lastErrorForCopy = full
                     status.text = "Failed: $full"
                     AppLog.appendException(this@GitHubPushActivity, logTag, "Push failed", e)
+                    stopPushRocket(pushRocket)
                 }
             }
         }
+    }
+
+    private fun startPushRocket(rocket: ImageView) {
+        stopPushRocket(rocket)
+        rocket.visibility = View.VISIBLE
+        rocket.post {
+            val parent = rocket.parent as? View ?: return@post
+            val startY = -rocket.height.toFloat()
+            val endY = (parent.height + rocket.height).toFloat()
+            rocket.translationY = startY
+            pushRocketAnim = ObjectAnimator.ofFloat(rocket, "translationY", startY, endY).apply {
+                duration = 1800
+                interpolator = LinearInterpolator()
+                repeatCount = ObjectAnimator.INFINITE
+                start()
+            }
+        }
+    }
+
+    private fun stopPushRocket(rocket: ImageView) {
+        pushRocketAnim?.cancel()
+        pushRocketAnim = null
+        rocket.visibility = View.GONE
+        rocket.translationY = 0f
     }
 
     override fun onPause() {
