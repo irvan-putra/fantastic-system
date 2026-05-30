@@ -34,6 +34,13 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    packaging {
+        resources {
+            // JGit jars contain duplicate OSGI resources; safe to exclude for Android apps.
+            excludes += "OSGI-INF/l10n/plugin.properties"
+        }
+    }
 }
 
 dependencies {
