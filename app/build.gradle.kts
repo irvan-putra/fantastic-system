@@ -39,6 +39,8 @@ android {
         resources {
             // JGit jars contain duplicate OSGI resources; safe to exclude for Android apps.
             excludes += "OSGI-INF/l10n/plugin.properties"
+            // Apache MINA sshd brings some duplicate META-INF resources.
+            excludes += "META-INF/DEPENDENCIES"
         }
     }
 }
