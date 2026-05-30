@@ -399,6 +399,10 @@ class GitHubPushActivity : AppCompatActivity() {
         sourceDir: File,
         repoDir: File
     ) {
+        // JGit expects a "user home" directory. On Android this property may be missing,
+        // causing errors like "IllegalArgumentException: No user home".
+        ensureJGitUserHome()
+
         val remoteUrl = "git@github.com:$owner/$repo.git"
 
         val keyPair = loadKeyPair()
@@ -464,6 +468,14 @@ class GitHubPushActivity : AppCompatActivity() {
             config: ServerKeyDatabase.Configuration,
             provider: org.eclipse.jgit.transport.CredentialsProvider?
         ): Boolean = true
+    }
+
+    private fun ensureJGitUserHome() {
+        val home = System.getProperty("user.home")
+        if (home.isNullOrBlank()) {
+            // Use app-private storage as a safe home directory substitute.
+            System.setProperty("user.home", filesDir.absolutePath)
+        }
     }
 
     private fun formatError(e: Throwable): String {
