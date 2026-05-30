@@ -257,13 +257,14 @@ class GitHubPushActivity : AppCompatActivity() {
     private fun startPushRocket(rocket: ImageView) {
         stopPushRocket(rocket)
         rocket.visibility = View.VISIBLE
+        rocket.bringToFront()
         rocket.post {
             val parent = rocket.parent as? View ?: return@post
             val startY = -rocket.height.toFloat()
             val endY = (parent.height + rocket.height).toFloat()
             rocket.translationY = startY
             pushRocketAnim = ObjectAnimator.ofFloat(rocket, "translationY", startY, endY).apply {
-                duration = 1800
+                duration = 4200
                 interpolator = LinearInterpolator()
                 repeatCount = ObjectAnimator.INFINITE
                 start()
