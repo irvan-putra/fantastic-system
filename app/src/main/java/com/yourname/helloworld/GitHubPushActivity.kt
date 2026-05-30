@@ -17,10 +17,10 @@ import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
-import org.eclipse.jgit.transport.OpenSshConfig
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
 import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory
+import org.eclipse.jgit.transport.ssh.jsch.OpenSshConfig
 import org.eclipse.jgit.util.FS
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
