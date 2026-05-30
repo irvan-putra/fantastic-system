@@ -38,3 +38,6 @@ local.properties
 
 # Archives
 *.zip
+
+# SOLO uploads (local-only)
+.uploads/

@@ -25,6 +25,9 @@ jobs:
           # (Long-term fix: regenerate the wrapper with `./gradlew wrapper` on a machine with network access.)
           validate-wrappers: false
 
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
+
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
 
