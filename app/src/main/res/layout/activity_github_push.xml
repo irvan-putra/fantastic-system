@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Push a ZIP file to GitHub (creates a commit using the GitHub API)."
+            android:textSize="16sp"
+            android:paddingBottom="12dp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="GitHub token (PAT)">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/tokenInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Owner (username/org)">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/ownerInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Repo name">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/repoInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Branch (default: main)">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/branchInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="main" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Path in repo (e.g. hello-trae-android.zip)">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/pathInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="hello-trae-android.zip" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Commit message">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/messageInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Upload project zip from Android" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <Button
+            android:id="@+id/pickZipButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pick ZIP file"
+            android:layout_marginTop="12dp" />
+
+        <TextView
+            android:id="@+id/selectedFile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="(no file selected)"
+            android:textSize="12sp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp" />
+
+        <Button
+            android:id="@+id/pushButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Push to GitHub" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Idle"
+            android:paddingTop="12dp" />
+
+    </LinearLayout>
+</ScrollView>
+

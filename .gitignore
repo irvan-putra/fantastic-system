@@ -35,3 +35,6 @@ local.properties
 .cxx/
 *.apk
 *.aab
+
+# Archives
+*.zip
