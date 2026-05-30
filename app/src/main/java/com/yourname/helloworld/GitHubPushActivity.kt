@@ -26,6 +26,8 @@ import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.errors.TransportException
 import org.eclipse.jgit.revwalk.RevCommit
+import org.eclipse.jgit.revwalk.RevWalk
+import org.eclipse.jgit.revwalk.RevWalkUtils
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
@@ -487,6 +489,44 @@ class GitHubPushActivity : AppCompatActivity() {
         cfg.setString("remote", "origin", "fetch", "+refs/heads/*:refs/remotes/origin/*")
         cfg.save()
 
+        // Fetch first so we can provide good diagnostics if the push is rejected (e.g., non-fast-forward).
+        try {
+            git.fetch()
+                .setRemote("origin")
+                .setTransportConfigCallback(transportConfigCallback)
+                .setTimeout(180)
+                .call()
+        } catch (e: Exception) {
+            // Not fatal for push, but useful to know.
+            AppLog.appendException(this, logTag, "Fetch failed (diagnostics may be limited)", e)
+        }
+
+        // Diagnostics: compare local vs remote branch tips (ahead/behind + fast-forward possibility).
+        val localId = git.repository.resolve("refs/heads/$branch") ?: git.repository.resolve(Constants.HEAD)
+        val remoteId = git.repository.resolve("refs/remotes/origin/$branch")
+        if (localId != null) {
+            AppLog.append(this, logTag, "Local $branch tip: ${localId.name.take(10)}")
+        }
+        if (remoteId != null) {
+            AppLog.append(this, logTag, "Remote origin/$branch tip: ${remoteId.name.take(10)}")
+        } else {
+            AppLog.append(this, logTag, "Remote origin/$branch tip: (not found)")
+        }
+        if (localId != null && remoteId != null) {
+            RevWalk(git.repository).use { walk ->
+                val localCommit = walk.parseCommit(localId)
+                val remoteCommit = walk.parseCommit(remoteId)
+                val ahead = RevWalkUtils.count(walk, localCommit, remoteCommit)
+                val behind = RevWalkUtils.count(walk, remoteCommit, localCommit)
+                val fastForwardPossible = walk.isMergedInto(remoteCommit, localCommit)
+                AppLog.append(
+                    this,
+                    logTag,
+                    "Ahead/behind vs origin/$branch: ahead=$ahead behind=$behind fastForwardPossible=$fastForwardPossible"
+                )
+            }
+        }
+
         val results = git.push()
             .setRemote("origin")
             .setTransportConfigCallback(transportConfigCallback)
@@ -510,10 +550,17 @@ class GitHubPushActivity : AppCompatActivity() {
                     u.status != RemoteRefUpdate.Status.UP_TO_DATE
             }
         if (rejected != null) {
+            // Add extra context for the most common case: non-fast-forward.
+            val extra = if (rejected.status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD) {
+                " This usually means the remote branch already has commits you don't have (someone pushed to it, or the repo already existed)."
+            } else {
+                ""
+            }
             throw TransportException(
                 "Push rejected: ${rejected.remoteName} ${rejected.status}" +
                     (rejected.message?.let { " ($it)" } ?: "") +
-                    ". Tip: change Branch to a new branch name and push again, or fast-forward/merge on GitHub first."
+                    "." + extra +
+                    " Tip: change Branch to a new branch name and push again, or pull/merge the remote branch and retry (force-push is not supported in this app)."
             )
         }
 
