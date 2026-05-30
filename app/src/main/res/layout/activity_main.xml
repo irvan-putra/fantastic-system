@@ -6,12 +6,12 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextView
+    <ImageView
         android:id="@+id/rocket"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="🚀"
-        android:textSize="56sp"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:contentDescription="Rocket"
+        android:src="@drawable/rocket_right"
         app:layout_constraintBottom_toTopOf="@id/helloText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
