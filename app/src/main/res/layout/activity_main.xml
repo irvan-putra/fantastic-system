@@ -23,7 +23,7 @@
         android:id="@+id/helloText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Hello Trae!"
+        android:text="Hello Irvan!"
         android:textSize="24sp"
         android:layout_marginTop="16dp"
         app:layout_constraintBottom_toTopOf="@id/pushButton"
