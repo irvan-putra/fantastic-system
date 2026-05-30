@@ -13,20 +13,32 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Push a ZIP file to GitHub (creates a commit using the GitHub API)."
+            android:text="Push ZIP contents to GitHub over SSH (real git push). First: generate an SSH key and add the public key to GitHub Settings → SSH keys."
             android:textSize="16sp"
             android:paddingBottom="12dp" />
 
-        <com.google.android.material.textfield.TextInputLayout
+        <Button
+            android:id="@+id/generateKeyButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="GitHub token (PAT)">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/tokenInput"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textPassword" />
-        </com.google.android.material.textfield.TextInputLayout>
+            android:text="Generate SSH key"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:id="@+id/publicKeyText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="(public key will appear here)"
+            android:textSize="12sp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp" />
+
+        <Button
+            android:id="@+id/copyKeyButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Copy public key"
+            android:enabled="false" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
@@ -62,17 +74,6 @@
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Path in repo (e.g. hello-trae-android.zip)">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/pathInput"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="hello-trae-android.zip" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
             android:hint="Commit message">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/messageInput"
@@ -101,7 +102,7 @@
             android:id="@+id/pushButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Push to GitHub" />
+            android:text="Git push (SSH)" />
 
         <TextView
             android:id="@+id/statusText"
@@ -112,4 +113,3 @@
 
     </LinearLayout>
 </ScrollView>
-

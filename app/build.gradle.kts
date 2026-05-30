@@ -44,7 +44,9 @@ dependencies {
     implementation("com.airbnb.android:lottie:6.4.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r")
+    implementation("org.eclipse.jgit:org.eclipse.jgit.ssh.jsch:6.10.0.202406032230-r")
+    implementation("com.jcraft:jsch:0.1.55")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
