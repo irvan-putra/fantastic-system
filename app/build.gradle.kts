@@ -3,6 +3,24 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+import java.io.ByteArrayOutputStream
+
+fun gitCommitMessage(): String {
+    return try {
+        val out = ByteArrayOutputStream()
+        exec {
+            commandLine("git", "log", "-1", "--pretty=%s")
+            standardOutput = out
+        }
+        out.toString().trim()
+    } catch (_: Exception) {
+        "unknown"
+    }
+}
+
+fun escapeForBuildConfig(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").trim()
+
 android {
     namespace = "com.yourname.helloworld"
     compileSdk = 34
@@ -15,6 +33,16 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField(
+            "String",
+            "LATEST_COMMIT_MSG",
+            "\"" + escapeForBuildConfig(gitCommitMessage()) + "\""
+        )
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
