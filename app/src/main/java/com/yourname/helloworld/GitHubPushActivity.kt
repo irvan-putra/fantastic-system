@@ -130,7 +130,7 @@ class GitHubPushActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     val pub = withContext(Dispatchers.IO) { ensureSshKeypair() }
-                    publicKeyText.text = "Public key:\n$pub"
+                    publicKeyText.text = pub
                     copyKeyBtn.isEnabled = true
                     status.text = "SSH key ready. Add it to GitHub → Settings → SSH keys."
                 } catch (e: Exception) {
@@ -246,7 +246,7 @@ class GitHubPushActivity : AppCompatActivity() {
         val publicKeyText = findViewById<TextView>(R.id.publicKeyText)
         val copyKeyBtn = findViewById<Button>(R.id.copyKeyButton)
         if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
-            publicKeyText.text = "Public key:\n${getOpenSshPublicKey(loadKeyPair().public)}"
+            publicKeyText.text = getOpenSshPublicKey(loadKeyPair().public)
             copyKeyBtn.isEnabled = true
         } else {
             publicKeyText.text = "(public key will appear here)"
