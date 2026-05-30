@@ -19,22 +19,29 @@ import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
-import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory
-import org.eclipse.jgit.transport.ssh.jsch.OpenSshConfig
-import org.eclipse.jgit.util.FS
-import com.jcraft.jsch.JSch
-import com.jcraft.jsch.Session
-import com.jcraft.jsch.KeyPair
+import org.eclipse.jgit.transport.sshd.ServerKeyDatabase
+import org.eclipse.jgit.transport.sshd.SshdSessionFactory
+import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder
+import org.apache.sshd.common.config.keys.PublicKeyEntry
 import java.io.IOException
 import java.io.File
 import java.io.FileOutputStream
+import java.net.InetSocketAddress
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.PublicKey
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import java.util.zip.ZipInputStream
 
 class GitHubPushActivity : AppCompatActivity() {
 
     private val sshDir: File by lazy { File(filesDir, "ssh").apply { mkdirs() } }
-    private val privateKeyFile: File by lazy { File(sshDir, "id_rsa") }
-    private val publicKeyFile: File by lazy { File(sshDir, "id_rsa.pub") }
+    private val privateKeyFile: File by lazy { File(sshDir, "private_key.pk8.b64") }
+    private val publicKeyFile: File by lazy { File(sshDir, "public_key.x509.b64") }
+    private val keyAlgFile: File by lazy { File(sshDir, "key_alg.txt") }
 
     private var selectedZipUri: Uri? = null
 
@@ -65,8 +72,8 @@ class GitHubPushActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.statusText)
 
         // If a key already exists, show it.
-        if (publicKeyFile.exists()) {
-            publicKeyText.text = publicKeyFile.readText()
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
+            publicKeyText.text = "Public key:\n${getOpenSshPublicKey(loadKeyPair().public)}"
             copyKeyBtn.isEnabled = true
         }
 
@@ -74,7 +81,7 @@ class GitHubPushActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     val pub = withContext(Dispatchers.IO) { ensureSshKeypair() }
-                    publicKeyText.text = pub
+                    publicKeyText.text = "Public key:\n$pub"
                     copyKeyBtn.isEnabled = true
                     status.text = "SSH key ready. Add it to GitHub → Settings → SSH keys."
                 } catch (e: Exception) {
@@ -111,7 +118,7 @@ class GitHubPushActivity : AppCompatActivity() {
                 status.text = "Pick a ZIP file first."
                 return@setOnClickListener
             }
-            if (!privateKeyFile.exists() || !publicKeyFile.exists()) {
+            if (!privateKeyFile.exists() || !publicKeyFile.exists() || !keyAlgFile.exists()) {
                 status.text = "Generate SSH key first."
                 return@setOnClickListener
             }
@@ -150,18 +157,61 @@ class GitHubPushActivity : AppCompatActivity() {
     }
 
     private fun ensureSshKeypair(): String {
-        if (privateKeyFile.exists() && publicKeyFile.exists()) {
-            return publicKeyFile.readText()
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
+            return getOpenSshPublicKey(loadKeyPair().public)
         }
 
-        // Generate an RSA keypair using JSch and save it in app-private storage.
-        val jsch = JSch()
-        val kp = KeyPair.genKeyPair(jsch, KeyPair.RSA, 3072)
-        FileOutputStream(privateKeyFile).use { out -> kp.writePrivateKey(out) }
-        FileOutputStream(publicKeyFile).use { out -> kp.writePublicKey(out, "hello-trae-android") }
-        kp.dispose()
+        // Prefer a modern key type:
+        // 1) Ed25519 (if available on this Android device)
+        // 2) ECDSA P-256
+        // 3) RSA 3072 (still OK with modern SSH clients that sign with rsa-sha2-256/512)
+        val (alg, keyPair) = generateModernKeyPair()
 
-        return publicKeyFile.readText()
+        keyAlgFile.writeText(alg)
+        privateKeyFile.writeText(android.util.Base64.encodeToString(keyPair.private.encoded, android.util.Base64.NO_WRAP))
+        publicKeyFile.writeText(android.util.Base64.encodeToString(keyPair.public.encoded, android.util.Base64.NO_WRAP))
+
+        return getOpenSshPublicKey(keyPair.public)
+    }
+
+    private fun generateModernKeyPair(): Pair<String, KeyPair> {
+        // Try Ed25519
+        try {
+            val kpg = KeyPairGenerator.getInstance("Ed25519")
+            return "Ed25519" to kpg.generateKeyPair()
+        } catch (_: Throwable) {
+            // ignore
+        }
+
+        // ECDSA P-256
+        try {
+            val kpg = KeyPairGenerator.getInstance("EC")
+            kpg.initialize(ECGenParameterSpec("secp256r1"))
+            return "EC" to kpg.generateKeyPair()
+        } catch (_: Throwable) {
+            // ignore
+        }
+
+        // RSA fallback
+        val kpg = KeyPairGenerator.getInstance("RSA")
+        kpg.initialize(3072)
+        return "RSA" to kpg.generateKeyPair()
+    }
+
+    private fun loadKeyPair(): KeyPair {
+        val alg = keyAlgFile.readText().trim()
+        val privBytes = android.util.Base64.decode(privateKeyFile.readText(), android.util.Base64.NO_WRAP)
+        val pubBytes = android.util.Base64.decode(publicKeyFile.readText(), android.util.Base64.NO_WRAP)
+
+        val kf = KeyFactory.getInstance(alg)
+        val priv = kf.generatePrivate(PKCS8EncodedKeySpec(privBytes))
+        val pub = kf.generatePublic(X509EncodedKeySpec(pubBytes))
+        return KeyPair(pub, priv)
+    }
+
+    private fun getOpenSshPublicKey(publicKey: PublicKey): String {
+        // Apache sshd can render OpenSSH format: "<type> <base64>"
+        return PublicKeyEntry.toString(publicKey) + " hello-trae-android"
     }
 
     private fun unzipFromUri(uri: Uri, targetDir: File) {
@@ -214,18 +264,16 @@ class GitHubPushActivity : AppCompatActivity() {
     ) {
         val remoteUrl = "git@github.com:$owner/$repo.git"
 
-        val sshFactory = object : JschConfigSessionFactory() {
-            override fun configure(hc: OpenSshConfig.Host?, session: Session) {
-                // Hackathon convenience: do not fail on unknown host keys.
-                session.setConfig("StrictHostKeyChecking", "no")
-            }
+        val keyPair = loadKeyPair()
 
-            override fun createDefaultJSch(fs: FS?): JSch {
-                val jsch = super.createDefaultJSch(fs)
-                jsch.addIdentity(privateKeyFile.absolutePath)
-                return jsch
-            }
-        }
+        // Use JGit's Apache MINA sshd implementation (modern algorithms; avoids legacy ssh-rsa/SHA-1).
+        val sshFactory: SshdSessionFactory = SshdSessionFactoryBuilder()
+            .setHomeDirectory(filesDir)
+            .setSshDirectory(sshDir)
+            .setDefaultKeysProvider { _ -> listOf(keyPair) }
+            // Hackathon convenience: accept all host keys (no known_hosts management).
+            .setServerKeyDatabase { _, _ -> AcceptAllServerKeyDatabase() }
+            .build(null)
 
         val transportConfigCallback = TransportConfigCallback { transport: Transport ->
             if (transport is SshTransport) {
@@ -260,5 +308,21 @@ class GitHubPushActivity : AppCompatActivity() {
             .call()
 
         git.close()
+    }
+
+    private class AcceptAllServerKeyDatabase : ServerKeyDatabase {
+        override fun lookup(
+            connectAddress: String,
+            remoteAddress: InetSocketAddress,
+            config: ServerKeyDatabase.Configuration
+        ): List<PublicKey> = emptyList()
+
+        override fun accept(
+            connectAddress: String,
+            remoteAddress: InetSocketAddress,
+            serverKey: PublicKey,
+            config: ServerKeyDatabase.Configuration,
+            provider: org.eclipse.jgit.transport.CredentialsProvider?
+        ): Boolean = true
     }
 }
