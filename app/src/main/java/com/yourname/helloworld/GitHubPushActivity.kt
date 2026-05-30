@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,7 @@ import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
+import org.eclipse.jgit.transport.TransportException
 import org.eclipse.jgit.transport.sshd.ServerKeyDatabase
 import org.eclipse.jgit.transport.sshd.SshdSessionFactory
 import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder
@@ -39,6 +41,8 @@ import java.security.spec.X509EncodedKeySpec
 import java.util.zip.ZipInputStream
 
 class GitHubPushActivity : AppCompatActivity() {
+
+    private val logTag = "GitHubPush"
 
     private val prefs by lazy { getSharedPreferences("github_push", MODE_PRIVATE) }
 
@@ -203,7 +207,8 @@ class GitHubPushActivity : AppCompatActivity() {
                     }
                     status.text = "Done! Pushed to $o/$r ($b)"
                 } catch (e: Exception) {
-                    status.text = "Failed: ${e.message ?: e.javaClass.simpleName}"
+                    Log.e(logTag, "Push failed", e)
+                    status.text = "Failed: ${formatError(e)}"
                 }
             }
         }
@@ -408,6 +413,8 @@ class GitHubPushActivity : AppCompatActivity() {
             .build(null)
 
         val transportConfigCallback = TransportConfigCallback { transport: Transport ->
+            // Increase network timeout: the first push can be large and slow on mobile networks.
+            transport.timeout = 180
             if (transport is SshTransport) {
                 transport.sshSessionFactory = sshFactory
             }
@@ -436,6 +443,7 @@ class GitHubPushActivity : AppCompatActivity() {
         git.push()
             .setRemote("origin")
             .setTransportConfigCallback(transportConfigCallback)
+            .setTimeout(180)
             .setRefSpecs(org.eclipse.jgit.transport.RefSpec(Constants.R_HEADS + branch + ":" + Constants.R_HEADS + branch))
             .call()
 
@@ -456,5 +464,28 @@ class GitHubPushActivity : AppCompatActivity() {
             config: ServerKeyDatabase.Configuration,
             provider: org.eclipse.jgit.transport.CredentialsProvider?
         ): Boolean = true
+    }
+
+    private fun formatError(e: Throwable): String {
+        // Provide a compact but informative message with cause chain.
+        val parts = mutableListOf<String>()
+        var cur: Throwable? = e
+        var guard = 0
+        while (cur != null && guard++ < 6) {
+            val msg = cur.message?.trim().orEmpty()
+            val name = cur.javaClass.simpleName
+            when {
+                msg.isNotEmpty() -> parts += "$name: $msg"
+                else -> parts += name
+            }
+            cur = cur.cause
+        }
+
+        // Common hint for GitHub over SSH when the server closes abruptly.
+        val hint = when (e) {
+            is TransportException -> " (check: SSH key added to GitHub, repo access, stable network)"
+            else -> ""
+        }
+        return parts.distinct().joinToString(" → ") + hint
     }
 }
