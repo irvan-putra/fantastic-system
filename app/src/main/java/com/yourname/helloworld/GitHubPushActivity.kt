@@ -43,6 +43,7 @@ import java.util.zip.ZipInputStream
 class GitHubPushActivity : AppCompatActivity() {
 
     private val logTag = "GitHubPush"
+    private var lastErrorForCopy: String = ""
 
     private val prefs by lazy { getSharedPreferences("github_push", MODE_PRIVATE) }
 
@@ -119,6 +120,7 @@ class GitHubPushActivity : AppCompatActivity() {
         val branch = findViewById<TextInputEditText>(R.id.branchInput)
         val message = findViewById<TextInputEditText>(R.id.messageInput)
         val status = findViewById<TextView>(R.id.statusText)
+        lastErrorForCopy = ""
 
         // Load saved repo settings (and restore after reinstall via Android backup or Import backup).
         loadPrefsIntoUi()
@@ -133,8 +135,10 @@ class GitHubPushActivity : AppCompatActivity() {
                     publicKeyText.text = pub
                     copyKeyBtn.isEnabled = true
                     status.text = "SSH key ready. Add it to GitHub → Settings → SSH keys."
+                    AppLog.append(this@GitHubPushActivity, logTag, "Generated SSH key")
                 } catch (e: Exception) {
                     status.text = "Key generation failed: ${e.message ?: e.javaClass.simpleName}"
+                    AppLog.appendException(this@GitHubPushActivity, logTag, "Key generation failed", e)
                 }
             }
         }
@@ -153,6 +157,17 @@ class GitHubPushActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.importBackupButton).setOnClickListener {
             importBackup.launch(arrayOf("application/json", "text/plain"))
+        }
+
+        findViewById<Button>(R.id.copyLogButton).setOnClickListener {
+            val text = if (lastErrorForCopy.isNotBlank()) lastErrorForCopy else AppLog.readAll(this)
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Irvan Trae log", text))
+            status.text = "Log copied."
+        }
+
+        findViewById<Button>(R.id.viewHistoryButton).setOnClickListener {
+            startActivity(Intent(this, LogHistoryActivity::class.java))
         }
 
         findViewById<Button>(R.id.pickZipButton).setOnClickListener {
@@ -180,6 +195,7 @@ class GitHubPushActivity : AppCompatActivity() {
             }
 
             status.text = "Unzipping + committing + pushing…"
+            AppLog.append(this@GitHubPushActivity, logTag, "Push start: $o/$r branch=$b")
             lifecycleScope.launch {
                 try {
                     withContext(Dispatchers.IO) {
@@ -206,9 +222,13 @@ class GitHubPushActivity : AppCompatActivity() {
                         )
                     }
                     status.text = "Done! Pushed to $o/$r ($b)"
+                    AppLog.append(this@GitHubPushActivity, logTag, "Push success: $o/$r branch=$b")
                 } catch (e: Exception) {
                     Log.e(logTag, "Push failed", e)
-                    status.text = "Failed: ${formatError(e)}"
+                    val full = formatError(e)
+                    lastErrorForCopy = full
+                    status.text = "Failed: $full"
+                    AppLog.appendException(this@GitHubPushActivity, logTag, "Push failed", e)
                 }
             }
         }

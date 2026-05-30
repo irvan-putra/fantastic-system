@@ -26,6 +26,10 @@
             android:name=".GitHubPushActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".LogHistoryActivity"
+            android:exported="false" />
+
     </application>
 
 </manifest>
