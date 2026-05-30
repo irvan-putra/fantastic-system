@@ -137,11 +137,18 @@ class GitHubPushActivity : AppCompatActivity() {
         }
 
         copyKeyBtn.setOnClickListener {
-            val pub = publicKeyText.text?.toString().orEmpty()
+            val pub = try {
+                if (privateKeyFile.exists() && publicKeyFile.exists()) getOpenSshPublicKey() else ""
+            } catch (_: Exception) {
+                ""
+            }
             if (pub.isNotBlank()) {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("GitHub SSH key", pub))
                 status.text = "Public key copied."
+                AppLog.append(this@GitHubPushActivity, logTag, "Public key copied to clipboard")
+            } else {
+                status.text = "No public key yet. Generate SSH key first."
             }
         }
 
@@ -454,8 +461,12 @@ class GitHubPushActivity : AppCompatActivity() {
         }
 
         // Common hint for GitHub over SSH when the server closes abruptly.
-        val hint = when (e) {
-            is TransportException -> " (check: SSH key added to GitHub, repo access, stable network)"
+        val combined = parts.joinToString(" ")
+        val hint = when {
+            combined.contains("Auth fail for methods 'publickey'") ->
+                " (fix: copy the public key and add it in GitHub → Settings → SSH keys; then verify you have access to this repo/branch)"
+            e is TransportException ->
+                " (check: SSH key added to GitHub, repo access, stable network)"
             else -> ""
         }
         return parts.distinct().joinToString(" → ") + hint
