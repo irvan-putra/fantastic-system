@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.PullResult
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.errors.TransportException
 import org.eclipse.jgit.revwalk.RevCommit
@@ -469,6 +470,53 @@ class GitHubPushActivity : AppCompatActivity() {
             .setInitialBranch(branch)
             .call()
 
+        val cfg = git.repository.config
+        cfg.setString("remote", "origin", "url", remoteUrl)
+        cfg.setString("remote", "origin", "fetch", "+refs/heads/*:refs/remotes/origin/*")
+        // Make the local branch track origin/<branch> so pull/rebase knows what to do.
+        cfg.setString("branch", branch, "remote", "origin")
+        cfg.setString("branch", branch, "merge", "refs/heads/$branch")
+        cfg.save()
+
+        // Fetch first so we can:
+        // 1) base our local branch on the latest origin/<branch>
+        // 2) provide good diagnostics if the push is rejected (e.g., non-fast-forward).
+        try {
+            git.fetch()
+                .setRemote("origin")
+                .setTransportConfigCallback(transportConfigCallback)
+                .setTimeout(180)
+                .call()
+        } catch (e: Exception) {
+            // Not fatal for push, but useful to know.
+            AppLog.appendException(this, logTag, "Fetch failed (diagnostics may be limited)", e)
+        }
+
+        val remoteRef = git.repository.findRef("refs/remotes/origin/$branch")
+        if (remoteRef != null) {
+            AppLog.append(this, logTag, "Remote branch found: origin/$branch = ${remoteRef.objectId.name.take(10)}")
+            try {
+                // Force local branch to point to origin/<branch> (equivalent to: git checkout -B <branch> origin/<branch>)
+                git.checkout()
+                    .setName(branch)
+                    .setCreateBranch(true)
+                    .setForce(true)
+                    .setStartPoint("refs/remotes/origin/$branch")
+                    .call()
+            } catch (e: Exception) {
+                AppLog.appendException(this, logTag, "Failed to reset local branch to origin/$branch", e)
+            }
+        } else {
+            AppLog.append(this, logTag, "Remote branch origin/$branch not found (new branch push)")
+        }
+
+        // Make repo contents match the ZIP:
+        // remove files that exist in the repo but not in the ZIP (common when starting from origin/<branch>).
+        repoDir.listFiles()?.forEach { f ->
+            if (f.name == ".git") return@forEach
+            f.deleteRecursively()
+        }
+
         // Copy unzipped contents into the repo working tree
         copyDirIntoRepo(sourceDir, repoDir)
 
@@ -483,23 +531,6 @@ class GitHubPushActivity : AppCompatActivity() {
         // Allow empty commits in case the ZIP had no files or only ignored paths.
         val committed: RevCommit = git.commit().setAllowEmpty(true).setMessage(commitMessage).call()
         AppLog.append(this, logTag, "Created commit ${committed.name.take(10)} on branch $branch")
-
-        val cfg = git.repository.config
-        cfg.setString("remote", "origin", "url", remoteUrl)
-        cfg.setString("remote", "origin", "fetch", "+refs/heads/*:refs/remotes/origin/*")
-        cfg.save()
-
-        // Fetch first so we can provide good diagnostics if the push is rejected (e.g., non-fast-forward).
-        try {
-            git.fetch()
-                .setRemote("origin")
-                .setTransportConfigCallback(transportConfigCallback)
-                .setTimeout(180)
-                .call()
-        } catch (e: Exception) {
-            // Not fatal for push, but useful to know.
-            AppLog.appendException(this, logTag, "Fetch failed (diagnostics may be limited)", e)
-        }
 
         // Diagnostics: compare local vs remote branch tips (ahead/behind + fast-forward possibility).
         val localId = git.repository.resolve("refs/heads/$branch") ?: git.repository.resolve(Constants.HEAD)
@@ -524,6 +555,27 @@ class GitHubPushActivity : AppCompatActivity() {
                     logTag,
                     "Ahead/behind vs origin/$branch: ahead=$ahead behind=$behind fastForwardPossible=$fastForwardPossible"
                 )
+            }
+        }
+
+        // "git pull" before push (best effort). This mainly helps when the remote advanced after our fetch.
+        // We prefer rebase to keep history linear. If it fails, we keep going and the push may be rejected.
+        if (remoteRef != null) {
+            try {
+                val pr: PullResult = git.pull()
+                    .setRemote("origin")
+                    .setRemoteBranchName(branch)
+                    .setTransportConfigCallback(transportConfigCallback)
+                    .setTimeout(180)
+                    .setRebase(true)
+                    .call()
+                AppLog.append(this, logTag, "Pull(rebase) result: success=${pr.isSuccessful}")
+                val afterPull = git.repository.resolve("refs/heads/$branch")
+                if (afterPull != null) {
+                    AppLog.append(this, logTag, "Local $branch tip after pull: ${afterPull.name.take(10)}")
+                }
+            } catch (e: Exception) {
+                AppLog.appendException(this, logTag, "Pull(rebase) failed", e)
             }
         }
 
