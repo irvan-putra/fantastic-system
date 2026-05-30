@@ -2,7 +2,6 @@ package com.yourname.helloworld
 
 import android.net.Uri
 import android.os.Bundle
-import android.util.Base64
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -16,11 +15,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
+import org.eclipse.jgit.transport.OpenSshConfig
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
-import org.eclipse.jgit.transport.TransportConfigCallback
-import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory
 import org.eclipse.jgit.util.FS
 import com.jcraft.jsch.JSch
@@ -30,7 +29,6 @@ import java.io.IOException
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
-import java.util.concurrent.TimeUnit
 
 class GitHubPushActivity : AppCompatActivity() {
 
@@ -101,8 +99,8 @@ class GitHubPushActivity : AppCompatActivity() {
         findViewById<Button>(R.id.pushButton).setOnClickListener {
             val o = owner.text?.toString()?.trim().orEmpty()
             val r = repo.text?.toString()?.trim().orEmpty()
-            val b = branch.text?.toString()?.trim().ifEmpty { "main" }
-            val m = message.text?.toString()?.trim().ifEmpty { "Upload project zip from Android" }
+            val b = branch.text?.toString()?.trim().orEmpty().ifEmpty { "main" }
+            val m = message.text?.toString()?.trim().orEmpty().ifEmpty { "Upload project zip from Android" }
             val uri = selectedZipUri
 
             if (o.isEmpty() || r.isEmpty()) {
@@ -217,7 +215,7 @@ class GitHubPushActivity : AppCompatActivity() {
         val remoteUrl = "git@github.com:$owner/$repo.git"
 
         val sshFactory = object : JschConfigSessionFactory() {
-            override fun configure(hc: org.eclipse.jgit.transport.OpenSshConfig.Host?, session: Session) {
+            override fun configure(hc: OpenSshConfig.Host?, session: Session) {
                 // Hackathon convenience: do not fail on unknown host keys.
                 session.setConfig("StrictHostKeyChecking", "no")
             }
