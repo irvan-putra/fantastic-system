@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,6 +15,7 @@ import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
@@ -38,6 +40,8 @@ import java.util.zip.ZipInputStream
 
 class GitHubPushActivity : AppCompatActivity() {
 
+    private val prefs by lazy { getSharedPreferences("github_push", MODE_PRIVATE) }
+
     private val sshDir: File by lazy { File(filesDir, "ssh").apply { mkdirs() } }
     private val privateKeyFile: File by lazy { File(sshDir, "private_key.pk8.b64") }
     private val publicKeyFile: File by lazy { File(sshDir, "public_key.x509.b64") }
@@ -51,11 +55,52 @@ class GitHubPushActivity : AppCompatActivity() {
             // Persist permission so we can read it later.
             contentResolver.takePersistableUriPermission(
                 uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
             findViewById<TextView>(R.id.selectedFile).text = uri.toString()
         } else {
             findViewById<TextView>(R.id.selectedFile).text = "(no file selected)"
+        }
+    }
+
+    private val exportBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val json = buildBackupJson(
+                        owner = findViewById<TextInputEditText>(R.id.ownerInput).text?.toString().orEmpty(),
+                        repo = findViewById<TextInputEditText>(R.id.repoInput).text?.toString().orEmpty(),
+                        branch = findViewById<TextInputEditText>(R.id.branchInput).text?.toString().orEmpty(),
+                        message = findViewById<TextInputEditText>(R.id.messageInput).text?.toString().orEmpty()
+                    )
+                    contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(json.toByteArray(Charsets.UTF_8))
+                    } ?: throw IOException("Unable to write backup file.")
+                }
+                findViewById<TextView>(R.id.statusText).text = "Backup exported."
+            } catch (e: Exception) {
+                findViewById<TextView>(R.id.statusText).text = "Export failed: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    private val importBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val json = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                        ?: throw IOException("Unable to read backup file.")
+                    restoreFromBackupJson(json)
+                }
+                loadPrefsIntoUi()
+                updateKeyUi()
+                findViewById<TextView>(R.id.statusText).text = "Backup imported."
+            } catch (e: Exception) {
+                findViewById<TextView>(R.id.statusText).text = "Import failed: ${e.message ?: e.javaClass.simpleName}"
+            }
         }
     }
 
@@ -71,11 +116,11 @@ class GitHubPushActivity : AppCompatActivity() {
         val message = findViewById<TextInputEditText>(R.id.messageInput)
         val status = findViewById<TextView>(R.id.statusText)
 
+        // Load saved repo settings (and restore after reinstall via Android backup or Import backup).
+        loadPrefsIntoUi()
+
         // If a key already exists, show it.
-        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
-            publicKeyText.text = "Public key:\n${getOpenSshPublicKey(loadKeyPair().public)}"
-            copyKeyBtn.isEnabled = true
-        }
+        updateKeyUi()
 
         findViewById<Button>(R.id.generateKeyButton).setOnClickListener {
             lifecycleScope.launch {
@@ -97,6 +142,13 @@ class GitHubPushActivity : AppCompatActivity() {
                 clipboard.setPrimaryClip(ClipData.newPlainText("GitHub SSH key", pub))
                 status.text = "Public key copied."
             }
+        }
+
+        findViewById<Button>(R.id.exportBackupButton).setOnClickListener {
+            exportBackup.launch("hello-trae-backup.json")
+        }
+        findViewById<Button>(R.id.importBackupButton).setOnClickListener {
+            importBackup.launch(arrayOf("application/json", "text/plain"))
         }
 
         findViewById<Button>(R.id.pickZipButton).setOnClickListener {
@@ -127,6 +179,7 @@ class GitHubPushActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     withContext(Dispatchers.IO) {
+                        saveUiToPrefs()
                         ensureSshKeypair()
                         val unzipDir = File(cacheDir, "zip_extract").apply {
                             deleteRecursively()
@@ -154,6 +207,85 @@ class GitHubPushActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveUiToPrefs()
+    }
+
+    private fun loadPrefsIntoUi() {
+        findViewById<TextInputEditText>(R.id.ownerInput).setText(prefs.getString("owner", "").orEmpty())
+        findViewById<TextInputEditText>(R.id.repoInput).setText(prefs.getString("repo", "").orEmpty())
+        findViewById<TextInputEditText>(R.id.branchInput).setText(prefs.getString("branch", "main").orEmpty())
+        findViewById<TextInputEditText>(R.id.messageInput).setText(
+            prefs.getString("message", "Upload project zip from Android").orEmpty()
+        )
+    }
+
+    private fun saveUiToPrefs() {
+        val owner = findViewById<TextInputEditText>(R.id.ownerInput).text?.toString()?.trim().orEmpty()
+        val repo = findViewById<TextInputEditText>(R.id.repoInput).text?.toString()?.trim().orEmpty()
+        val branch = findViewById<TextInputEditText>(R.id.branchInput).text?.toString()?.trim().orEmpty()
+        val message = findViewById<TextInputEditText>(R.id.messageInput).text?.toString()?.trim().orEmpty()
+
+        prefs.edit()
+            .putString("owner", owner)
+            .putString("repo", repo)
+            .putString("branch", branch.ifEmpty { "main" })
+            .putString("message", message.ifEmpty { "Upload project zip from Android" })
+            .apply()
+    }
+
+    private fun updateKeyUi() {
+        val publicKeyText = findViewById<TextView>(R.id.publicKeyText)
+        val copyKeyBtn = findViewById<Button>(R.id.copyKeyButton)
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
+            publicKeyText.text = "Public key:\n${getOpenSshPublicKey(loadKeyPair().public)}"
+            copyKeyBtn.isEnabled = true
+        } else {
+            publicKeyText.text = "(public key will appear here)"
+            copyKeyBtn.isEnabled = false
+        }
+    }
+
+    private fun buildBackupJson(owner: String, repo: String, branch: String, message: String): String {
+        val obj = JSONObject()
+
+        // SSH key (if present)
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
+            obj.put("key_alg", keyAlgFile.readText())
+            obj.put("private_key_pk8_b64", privateKeyFile.readText())
+            obj.put("public_key_x509_b64", publicKeyFile.readText())
+        }
+
+        // Repo settings
+        obj.put("owner", owner.trim())
+        obj.put("repo", repo.trim())
+        obj.put("branch", branch.trim().ifEmpty { "main" })
+        obj.put("message", message.trim().ifEmpty { "Upload project zip from Android" })
+
+        return obj.toString(2)
+    }
+
+    private fun restoreFromBackupJson(json: String) {
+        val obj = JSONObject(json)
+
+        // Restore key files if present
+        if (obj.has("key_alg") && obj.has("private_key_pk8_b64") && obj.has("public_key_x509_b64")) {
+            sshDir.mkdirs()
+            keyAlgFile.writeText(obj.getString("key_alg"))
+            privateKeyFile.writeText(obj.getString("private_key_pk8_b64"))
+            publicKeyFile.writeText(obj.getString("public_key_x509_b64"))
+        }
+
+        // Restore repo prefs
+        prefs.edit()
+            .putString("owner", obj.optString("owner", ""))
+            .putString("repo", obj.optString("repo", ""))
+            .putString("branch", obj.optString("branch", "main"))
+            .putString("message", obj.optString("message", "Upload project zip from Android"))
+            .apply()
     }
 
     private fun ensureSshKeypair(): String {

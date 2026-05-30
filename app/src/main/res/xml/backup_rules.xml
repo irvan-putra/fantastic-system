@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Persist GitHub repo settings -->
+    <include domain="sharedpref" path="github_push.xml" />
+
+    <!-- Persist generated SSH key material (small text files) -->
+    <include domain="file" path="ssh/" />
+</full-backup-content>
+
