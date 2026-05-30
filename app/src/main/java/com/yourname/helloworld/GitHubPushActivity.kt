@@ -22,7 +22,7 @@ import org.eclipse.jgit.api.TransportConfigCallback
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
-import org.eclipse.jgit.transport.TransportException
+import org.eclipse.jgit.errors.TransportException
 import org.eclipse.jgit.transport.sshd.ServerKeyDatabase
 import org.eclipse.jgit.transport.sshd.SshdSessionFactory
 import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder
