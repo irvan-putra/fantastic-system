@@ -19,26 +19,19 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.TransportConfigCallback
+import org.eclipse.jgit.errors.TransportException
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.Transport
-import org.eclipse.jgit.errors.TransportException
-import org.eclipse.jgit.transport.sshd.ServerKeyDatabase
-import org.eclipse.jgit.transport.sshd.SshdSessionFactory
-import org.eclipse.jgit.transport.sshd.SshdSessionFactoryBuilder
-import org.apache.sshd.common.config.keys.PublicKeyEntry
 import java.io.IOException
 import java.io.File
 import java.io.FileOutputStream
-import java.net.InetSocketAddress
-import java.security.KeyFactory
-import java.security.KeyPair
-import java.security.KeyPairGenerator
-import java.security.PublicKey
-import java.security.spec.ECGenParameterSpec
-import java.security.spec.PKCS8EncodedKeySpec
-import java.security.spec.X509EncodedKeySpec
 import java.util.zip.ZipInputStream
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.Session
+import com.jcraft.jsch.KeyPair
+import org.eclipse.jgit.transport.ssh.jsch.JschConfigSessionFactory
+import org.eclipse.jgit.transport.ssh.jsch.OpenSshConfig
 
 class GitHubPushActivity : AppCompatActivity() {
 
@@ -48,9 +41,9 @@ class GitHubPushActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("github_push", MODE_PRIVATE) }
 
     private val sshDir: File by lazy { File(filesDir, "ssh").apply { mkdirs() } }
-    private val privateKeyFile: File by lazy { File(sshDir, "private_key.pk8.b64") }
-    private val publicKeyFile: File by lazy { File(sshDir, "public_key.x509.b64") }
-    private val keyAlgFile: File by lazy { File(sshDir, "key_alg.txt") }
+    private val privateKeyFile: File by lazy { File(sshDir, "id_key") }
+    private val publicKeyFile: File by lazy { File(sshDir, "id_key.pub") }
+    private val keyTypeFile: File by lazy { File(sshDir, "key_type.txt") }
 
     private var selectedZipUri: Uri? = null
 
@@ -265,8 +258,8 @@ class GitHubPushActivity : AppCompatActivity() {
     private fun updateKeyUi() {
         val publicKeyText = findViewById<TextView>(R.id.publicKeyText)
         val copyKeyBtn = findViewById<Button>(R.id.copyKeyButton)
-        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
-            publicKeyText.text = getOpenSshPublicKey(loadKeyPair().public)
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyTypeFile.exists()) {
+            publicKeyText.text = getOpenSshPublicKey()
             copyKeyBtn.isEnabled = true
         } else {
             publicKeyText.text = "(public key will appear here)"
@@ -278,10 +271,10 @@ class GitHubPushActivity : AppCompatActivity() {
         val obj = JSONObject()
 
         // SSH key (if present)
-        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
-            obj.put("key_alg", keyAlgFile.readText())
-            obj.put("private_key_pk8_b64", privateKeyFile.readText())
-            obj.put("public_key_x509_b64", publicKeyFile.readText())
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyTypeFile.exists()) {
+            obj.put("key_type", keyTypeFile.readText())
+            obj.put("private_key", privateKeyFile.readText())
+            obj.put("public_key", publicKeyFile.readText())
         }
 
         // Repo settings
@@ -297,11 +290,11 @@ class GitHubPushActivity : AppCompatActivity() {
         val obj = JSONObject(json)
 
         // Restore key files if present
-        if (obj.has("key_alg") && obj.has("private_key_pk8_b64") && obj.has("public_key_x509_b64")) {
+        if (obj.has("key_type") && obj.has("private_key") && obj.has("public_key")) {
             sshDir.mkdirs()
-            keyAlgFile.writeText(obj.getString("key_alg"))
-            privateKeyFile.writeText(obj.getString("private_key_pk8_b64"))
-            publicKeyFile.writeText(obj.getString("public_key_x509_b64"))
+            keyTypeFile.writeText(obj.getString("key_type"))
+            privateKeyFile.writeText(obj.getString("private_key"))
+            publicKeyFile.writeText(obj.getString("public_key"))
         }
 
         // Restore repo prefs
@@ -314,62 +307,22 @@ class GitHubPushActivity : AppCompatActivity() {
     }
 
     private fun ensureSshKeypair(): String {
-        if (privateKeyFile.exists() && publicKeyFile.exists() && keyAlgFile.exists()) {
-            return getOpenSshPublicKey(loadKeyPair().public)
+        if (privateKeyFile.exists() && publicKeyFile.exists() && keyTypeFile.exists()) {
+            return getOpenSshPublicKey()
         }
 
-        // Prefer a modern key type:
-        // 1) Ed25519 (if available on this Android device)
-        // 2) ECDSA P-256
-        // 3) RSA 3072 (still OK with modern SSH clients that sign with rsa-sha2-256/512)
-        val (alg, keyPair) = generateModernKeyPair()
+        // Generate a key using JSch (mwiede fork supports modern rsa-sha2 signatures on GitHub).
+        val jsch = JSch()
+        val kp = KeyPair.genKeyPair(jsch, KeyPair.RSA, 3072)
+        FileOutputStream(privateKeyFile).use { out -> kp.writePrivateKey(out) }
+        FileOutputStream(publicKeyFile).use { out -> kp.writePublicKey(out, "irvan-trae-app") }
+        keyTypeFile.writeText("RSA")
+        kp.dispose()
 
-        keyAlgFile.writeText(alg)
-        privateKeyFile.writeText(android.util.Base64.encodeToString(keyPair.private.encoded, android.util.Base64.NO_WRAP))
-        publicKeyFile.writeText(android.util.Base64.encodeToString(keyPair.public.encoded, android.util.Base64.NO_WRAP))
-
-        return getOpenSshPublicKey(keyPair.public)
+        return getOpenSshPublicKey()
     }
 
-    private fun generateModernKeyPair(): Pair<String, KeyPair> {
-        // Try Ed25519
-        try {
-            val kpg = KeyPairGenerator.getInstance("Ed25519")
-            return "Ed25519" to kpg.generateKeyPair()
-        } catch (_: Throwable) {
-            // ignore
-        }
-
-        // ECDSA P-256
-        try {
-            val kpg = KeyPairGenerator.getInstance("EC")
-            kpg.initialize(ECGenParameterSpec("secp256r1"))
-            return "EC" to kpg.generateKeyPair()
-        } catch (_: Throwable) {
-            // ignore
-        }
-
-        // RSA fallback
-        val kpg = KeyPairGenerator.getInstance("RSA")
-        kpg.initialize(3072)
-        return "RSA" to kpg.generateKeyPair()
-    }
-
-    private fun loadKeyPair(): KeyPair {
-        val alg = keyAlgFile.readText().trim()
-        val privBytes = android.util.Base64.decode(privateKeyFile.readText(), android.util.Base64.NO_WRAP)
-        val pubBytes = android.util.Base64.decode(publicKeyFile.readText(), android.util.Base64.NO_WRAP)
-
-        val kf = KeyFactory.getInstance(alg)
-        val priv = kf.generatePrivate(PKCS8EncodedKeySpec(privBytes))
-        val pub = kf.generatePublic(X509EncodedKeySpec(pubBytes))
-        return KeyPair(pub, priv)
-    }
-
-    private fun getOpenSshPublicKey(publicKey: PublicKey): String {
-        // Apache sshd can render OpenSSH format: "<type> <base64>"
-        return PublicKeyEntry.toString(publicKey) + " hello-trae-android"
-    }
+    private fun getOpenSshPublicKey(): String = publicKeyFile.readText().trim()
 
     private fun unzipFromUri(uri: Uri, targetDir: File) {
         contentResolver.openInputStream(uri)?.use { input ->
@@ -425,16 +378,19 @@ class GitHubPushActivity : AppCompatActivity() {
 
         val remoteUrl = "git@github.com:$owner/$repo.git"
 
-        val keyPair = loadKeyPair()
+        val sshFactory = object : JschConfigSessionFactory() {
+            override fun configure(hc: OpenSshConfig.Host?, session: Session) {
+                // Hackathon convenience: do not fail on unknown host keys.
+                session.setConfig("StrictHostKeyChecking", "no")
+            }
 
-        // Use JGit's Apache MINA sshd implementation (modern algorithms; avoids legacy ssh-rsa/SHA-1).
-        val sshFactory: SshdSessionFactory = SshdSessionFactoryBuilder()
-            .setHomeDirectory(filesDir)
-            .setSshDirectory(sshDir)
-            .setDefaultKeysProvider { _ -> listOf(keyPair) }
-            // Hackathon convenience: accept all host keys (no known_hosts management).
-            .setServerKeyDatabase { _, _ -> AcceptAllServerKeyDatabase() }
-            .build(null)
+            override fun createDefaultJSch(fs: org.eclipse.jgit.util.FS?): JSch {
+                val jsch = super.createDefaultJSch(fs)
+                // Use the key generated by the app.
+                jsch.addIdentity(privateKeyFile.absolutePath)
+                return jsch
+            }
+        }
 
         val transportConfigCallback = TransportConfigCallback { transport: Transport ->
             // Increase network timeout: the first push can be large and slow on mobile networks.
@@ -472,22 +428,6 @@ class GitHubPushActivity : AppCompatActivity() {
             .call()
 
         git.close()
-    }
-
-    private class AcceptAllServerKeyDatabase : ServerKeyDatabase {
-        override fun lookup(
-            connectAddress: String,
-            remoteAddress: InetSocketAddress,
-            config: ServerKeyDatabase.Configuration
-        ): List<PublicKey> = emptyList()
-
-        override fun accept(
-            connectAddress: String,
-            remoteAddress: InetSocketAddress,
-            serverKey: PublicKey,
-            config: ServerKeyDatabase.Configuration,
-            provider: org.eclipse.jgit.transport.CredentialsProvider?
-        ): Boolean = true
     }
 
     private fun ensureJGitUserHome() {
