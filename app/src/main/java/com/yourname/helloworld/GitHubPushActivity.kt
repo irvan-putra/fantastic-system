@@ -233,14 +233,20 @@ class GitHubPushActivity : AppCompatActivity() {
             }
         }
 
-        val git = Git.init().setDirectory(repoDir).call()
-        git.checkout().setCreateBranch(true).setName(branch).call()
+        // IMPORTANT: for a brand-new repo, HEAD is "unborn" until the first commit.
+        // Creating/checking out a branch before the first commit can fail with:
+        // "Ref HEAD cannot be resolved". So we set the initial branch at init time.
+        val git = Git.init()
+            .setDirectory(repoDir)
+            .setInitialBranch(branch)
+            .call()
 
         // Copy unzipped contents into the repo working tree
         copyDirIntoRepo(sourceDir, repoDir)
 
         git.add().addFilepattern(".").call()
-        git.commit().setMessage(commitMessage).call()
+        // Allow empty commits in case the ZIP had no files or only ignored paths.
+        git.commit().setAllowEmpty(true).setMessage(commitMessage).call()
 
         val cfg = git.repository.config
         cfg.setString("remote", "origin", "url", remoteUrl)
